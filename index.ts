@@ -116,7 +116,7 @@ function obsLogPath(): string {
 	return join(piDir, "pi_observations.jsonl");
 }
 
-/** Ensure the log file exists with an empty array opening. Append-only after that. */
+/** Ensure the log file exists. */
 function initObsLog(path: string): void {
 	if (!existsSync(path)) {
 		mkdirSync(join(path, ".."), { recursive: true });
@@ -130,7 +130,7 @@ function appendObs(path: string, obs: Record<string, unknown>): void {
 
 /** Produce a unique-ish id for dedup on re-ingest. */
 function obsId(provider: string, modelId: string, ts: string, input: number, output: number): string {
-	const shortTs = ts.replace(/[-:Z.]/g, "").slice(2, 20); // "YYMMDDTHHMMSS"
+	const shortTs = ts.replace(/[-:Z.]/g, "").slice(2, 20);
 	return `obs-pi-${provider}-${modelId.replace(/[^a-zA-Z0-9_-]/g, "-")}-${shortTs}-i${input}-o${output}`;
 }
 
@@ -140,8 +140,7 @@ function fmtTps(tokens: number, seconds: number): string {
 }
 
 // Bayesian shrinkage: blend the measured chars/token from past turns with a
-// prose prior, weighted by sample size. Cold start -> prior; converges to the
-// model's true ratio as data accrues.
+// prose prior, weighted by sample size.
 function calibratedRatio(c: Counters | undefined): number {
 	if (!c || c.tokens <= 0) return PRIOR_CHARS_PER_TOKEN;
 	const w = c.tokens / (c.tokens + PRIOR_WEIGHT_TOKENS);
@@ -180,18 +179,13 @@ export default function (pi: ExtensionAPI) {
 		if (now - live.lastRenderMs < RENDER_INTERVAL_MS) return;
 
 		const elapsed = (now - live.streamStartMs) / 1000;
-		// Prefer the provider's live count when it actually streams one;
-		// otherwise estimate chars using the calibrated ratio for this model.
 		const ratio = calibratedRatio(currentKey ? stats.get(currentKey) : undefined);
 		const estimate = live.usageOutput > 0 ? live.usageOutput : live.chars / ratio;
-		// Suppress the live number until there's enough data — otherwise the
-		// first samples are noisy and dip low. The cumulative rest number
-		// stays visible in the meantime.
 		if (elapsed < MIN_STREAM_SEC || estimate < MIN_EST_TOKENS) return;
 		live.lastRenderMs = now;
 
 		const tps = (estimate / elapsed).toFixed(1);
-		const prefix = live.usageOutput > 0 ? "" : "≈"; // ≈ marks a char-based estimate
+		const prefix = live.usageOutput > 0 ? "" : "≈";
 		ctx.ui.setStatus("tps", ctx.ui.theme.fg("dim", `${prefix}${tps} tok/s  │`));
 	}
 
@@ -200,8 +194,6 @@ export default function (pi: ExtensionAPI) {
 		render(ctx, currentKey);
 	});
 
-	// Switch the displayed bucket (old model's counters are kept so cycling
-	// back resumes them).
 	pi.on("model_select", (event, ctx) => {
 		currentKey = keyFor(event.model);
 		render(ctx, currentKey);
@@ -218,15 +210,11 @@ export default function (pi: ExtensionAPI) {
 		if (!live) return;
 		const ev = event.assistantMessageEvent;
 
-		// Start the clock on the first streamed delta (excludes TTFT) and
-		// accumulate chars for the estimate (text + thinking + tool args).
 		if (ev.type === "text_delta" || ev.type === "thinking_delta" || ev.type === "toolcall_delta") {
 			if (live.streamStartMs == null) live.streamStartMs = Date.now();
 			live.chars += ev.delta.length;
 		}
 
-		// Some providers (Anthropic) populate partial.usage.output live; adopt
-		// the high-water mark so we use it when available.
 		const partialOutput = (event.message as { usage?: { output?: number } }).usage?.output ?? 0;
 		if (partialOutput > live.usageOutput) live.usageOutput = partialOutput;
 
@@ -319,4 +307,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			const c = key ? stats.get(key) : undefined;
 			const tps = c ? fmtTps(c.tokens, c.seconds) : "—";
-			const n = c ? Math.round(c.seconds) : 
+			const n = c ? Math.round(c.seconds) : 0;
+			const ratio = calibratedRatio(c);
+			const mode = live ? (live.usageOutput > 0 ? "live (exact)" : "live (estimated)") : "at rest";
+			ctx.ui.notify(`${key ?? "current model"}: ${tps} tok/s · ${ratio.toFixed(2)}c/t (${n}s sampled, ${mode})`, "info");
+		},
+	});
+}
