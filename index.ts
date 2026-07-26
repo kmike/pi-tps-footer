@@ -160,6 +160,11 @@ export default function (pi: ExtensionAPI) {
 	// Track message_start timestamp for TTFT.
 	let messageStartMs: number | undefined;
 
+	// Capture context size at turn_start (before LLM call), when it's most
+	// accurate. Stores the total context (system + history), which is what
+	// determines decode speed (KV cache size).
+	let turnContextTokens: number | undefined;
+
 	let live: LiveState | undefined;
 
 	function keyFor(model: { provider: string; id: string } | undefined): ModelKey | undefined {
@@ -197,6 +202,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("model_select", (event, ctx) => {
 		currentKey = keyFor(event.model);
 		render(ctx, currentKey);
+	});
+
+	pi.on("turn_start", (_event, ctx) => {
+		const ctxUsage = ctx.getContextUsage();
+		turnContextTokens = ctxUsage?.tokens ?? undefined;
 	});
 
 	pi.on("message_start", (event, _ctx) => {
@@ -249,11 +259,12 @@ export default function (pi: ExtensionAPI) {
 				? (wasLive.streamStartMs - messageStartMs) / 1000
 				: undefined;
 
-			// Context size: prefer pi's tracked context (works for all providers
-			// including ds4 which doesn't report usage.input). Fall back to
-			// usage.input when pi's tracking isn't available.
-			const ctxUsage = ctx.getContextUsage();
-			const contextTokens = ctxUsage?.tokens ?? (input > 0 ? input : null);
+			// Context size: prefer turn_start capture (total context = system +
+			// history, determines KV cache size). Fall back to usage.input
+			// (turn input tokens) when turn_start capture isn't available,
+			// then null when nothing is available.
+			const contextTokens = turnContextTokens ?? (input > 0 ? input : null);
+			turnContextTokens = undefined; // reset for next turn
 
 			const obs: Record<string, unknown> = {
 				id: obsId(provider, modelId, ts, contextTokens ?? 0, output),
