@@ -239,7 +239,7 @@ export default function (pi: ExtensionAPI) {
 		const input = msg.usage?.input ?? 0;
 		const clean = msg.stopReason == null || msg.stopReason === "stop" || msg.stopReason === "length" || msg.stopReason === "toolUse";
 
-		if (clean && output > 0 && elapsed > 0 && input > 0) {
+		if (clean && output > 0 && elapsed > 0) {
 			const model = event.message as { model?: string; provider?: string };
 			const modelId = model.model ?? "unknown";
 			const provider = model.provider ?? "unknown";
@@ -249,11 +249,17 @@ export default function (pi: ExtensionAPI) {
 				? (wasLive.streamStartMs - messageStartMs) / 1000
 				: undefined;
 
+			// Context size: prefer pi's tracked context (works for all providers
+			// including ds4 which doesn't report usage.input). Fall back to
+			// usage.input when pi's tracking isn't available.
+			const ctxUsage = ctx.getContextUsage();
+			const contextTokens = ctxUsage?.tokens ?? (input > 0 ? input : null);
+
 			const obs: Record<string, unknown> = {
-				id: obsId(provider, modelId, ts, input, output),
+				id: obsId(provider, modelId, ts, contextTokens ?? 0, output),
 				model_id: modelId,
 				provider: provider,
-				prompt_tokens: input,
+				prompt_tokens: contextTokens,
 				gen_tokens: output,
 				cache_read_tokens: msg.usage?.cacheRead ?? 0,
 				cache_write_tokens: msg.usage?.cacheWrite ?? 0,
