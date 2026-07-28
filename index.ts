@@ -106,6 +106,16 @@ const PRIOR_WEIGHT_TOKENS = 500; // ~this much output before measured beats prio
 // context-growth slowdown and provider-load drift). Set to Infinity to
 // disable decay (pure cumulative).
 const DECAY_HALF_LIFE_SEC = 30 * 60; // 30 min
+// Physical plausibility cap for decode tps (tok/s). No current hardware
+// decodes LLM tokens faster than this; observations that exceed it are
+// measurement failures — specifically non-incremental "end-flush" responses
+// where the provider buffers the whole output and emits it at completion, so
+// the first-delta-to-message_end window (~0s) doesn't represent real decode
+// time. Such observations are skipped (not logged, not counted in the running
+// average) rather than emitting a misleading near-zero decode_seconds. Finer
+// per-model ceiling filtering (memory_bandwidth / active_bytes_per_token)
+// belongs in the ingest layer, which knows the hardware + model.
+const IMPLAUSIBLE_DECODE_TPS = 500;
 
 // --- Observation logger ---
 
@@ -146,6 +156,26 @@ function calibratedRatio(c: Counters | undefined): number {
 	const w = c.tokens / (c.tokens + PRIOR_WEIGHT_TOKENS);
 	const measured = c.chars / c.tokens;
 	return w * measured + (1 - w) * PRIOR_CHARS_PER_TOKEN;
+}
+
+/** Resolve the prompt/context token count for an observation.
+ *
+ * Prefer the turn_start capture (most accurate: total system+history context
+ * before the LLM call). For tool-result continuations — where the model is
+ * called again within one user turn after a tool runs, so no fresh turn_start
+ * fires — fall back to pi's context tracking read at message_end, then to
+ * usage.input. Without the message_end fallback, continuations logged
+ * prompt_tokens=0 whenever usage.input wasn't populated at message_end (it
+ * resolves later in the persisted message). Returns null when nothing is
+ * available (logged as prompt_tokens: null). */
+function resolveContextTokens(turnCtx: number | undefined, ctxUsage: number | undefined, input: number): number | null {
+	return turnCtx ?? ctxUsage ?? (input > 0 ? input : null);
+}
+
+/** True if a decode measurement is physically plausible (not an end-flush
+ *  artifact). See IMPLAUSIBLE_DECODE_TPS. */
+function isPlausibleDecode(output: number, elapsedSec: number): boolean {
+	return elapsedSec > 0 && output / elapsedSec <= IMPLAUSIBLE_DECODE_TPS;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -248,8 +278,12 @@ export default function (pi: ExtensionAPI) {
 		const output = msg.usage?.output ?? 0;
 		const input = msg.usage?.input ?? 0;
 		const clean = msg.stopReason == null || msg.stopReason === "stop" || msg.stopReason === "length" || msg.stopReason === "toolUse";
+		// Skip non-incremental "end-flush" responses (decode measured over an
+		// implausibly short window) — see IMPLAUSIBLE_DECODE_TPS. Gates both the
+		// observation log and the running average.
+		const loggable = clean && output > 0 && isPlausibleDecode(output, elapsed);
 
-		if (clean && output > 0 && elapsed > 0) {
+		if (loggable) {
 			const model = event.message as { model?: string; provider?: string };
 			const modelId = model.model ?? "unknown";
 			const provider = model.provider ?? "unknown";
@@ -260,10 +294,12 @@ export default function (pi: ExtensionAPI) {
 				: undefined;
 
 			// Context size: prefer turn_start capture (total context = system +
-			// history, determines KV cache size). Fall back to usage.input
-			// (turn input tokens) when turn_start capture isn't available,
-			// then null when nothing is available.
-			const contextTokens = turnContextTokens ?? (input > 0 ? input : null);
+			// history, determines KV cache size). For tool-result continuations
+			// (no fresh turn_start), fall back to pi's context tracking at
+			// message_end, then usage.input. Without the message_end fallback,
+			// continuations logged prompt_tokens=0 when usage.input wasn't
+			// populated at message_end.
+			const contextTokens = resolveContextTokens(turnContextTokens, ctx.getContextUsage()?.tokens, input);
 			turnContextTokens = undefined; // reset for next turn
 
 			const obs: Record<string, unknown> = {
@@ -291,7 +327,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// --- Decayed average (existing behavior) ---
-		if (clean && output > 0 && elapsed > 0) {
+		if (loggable) {
 			const key = currentKey ?? "unknown";
 			const c = stats.get(key) ?? { tokens: 0, seconds: 0, chars: 0, lastSampleMs: undefined };
 			const now = Date.now();

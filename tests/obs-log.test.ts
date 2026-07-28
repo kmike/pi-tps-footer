@@ -44,6 +44,16 @@ function obsId(provider: string, modelId: string, ts: string, input: number, out
 	return `obs-pi-${provider}-${modelId.replace(/[^a-zA-Z0-9_-]/g, "-")}-${shortTs}-i${input}-o${output}`;
 }
 
+const IMPLAUSIBLE_DECODE_TPS = 500;
+
+function resolveContextTokens(turnCtx: number | undefined, ctxUsage: number | undefined, input: number): number | null {
+	return turnCtx ?? ctxUsage ?? (input > 0 ? input : null);
+}
+
+function isPlausibleDecode(output: number, elapsedSec: number): boolean {
+	return elapsedSec > 0 && output / elapsedSec <= IMPLAUSIBLE_DECODE_TPS;
+}
+
 // --- Tests ---
 
 let passed = 0;
@@ -100,6 +110,39 @@ test("obsId uniqueness", () => {
 	assert(id1 !== id2, "different timestamps produce different ids");
 	const id3 = obsId("omlx", "A", ts1, 200, 50);
 	assert(id1 !== id3, "different input counts produce different ids");
+});
+
+// --- Context resolution & decode plausibility ---
+// Regression: prompt_tokens=0 on tool-call continuations (no turn_start,
+// usage.input not yet populated at message_end); decode≈0 end-flush artifacts
+// (provider buffered whole output, emitted at completion).
+
+test("resolveContextTokens prefers turn_start capture", () => {
+	assertEq(resolveContextTokens(9000, 8000, 8500), 9000, "turn_start wins when present");
+});
+
+test("resolveContextTokens covers tool-result continuations (no turn_start)", () => {
+	// Regression: continuation had no turn_start; usage.input was 0 at
+	// message_end (resolved to 9303 only in the persisted transcript).
+	assertEq(resolveContextTokens(undefined, 9303, 0), 9303, "uses message_end context when no turn_start");
+	assertEq(resolveContextTokens(undefined, 9303, 171), 9303, "prefers context tracking over usage.input");
+});
+
+test("resolveContextTokens falls back to usage.input, then null", () => {
+	assertEq(resolveContextTokens(undefined, undefined, 5000), 5000, "usage.input fallback");
+	assertEq(resolveContextTokens(undefined, undefined, 0), null, "null when nothing available");
+});
+
+test("isPlausibleDecode rejects end-flush artifacts", () => {
+	assertEq(isPlausibleDecode(278, 0.006), false, "46k tok/s flush rejected");
+	assertEq(isPlausibleDecode(310, 0.001), false, "310k tok/s flush rejected");
+});
+
+test("isPlausibleDecode accepts real decode, rejects impossible", () => {
+	assertEq(isPlausibleDecode(130, 2.167), true, "60 tok/s accepted");
+	assertEq(isPlausibleDecode(74, 0.373), true, "198 tok/s accepted (under universal 500 cap)");
+	assertEq(isPlausibleDecode(25, 0.05), true, "boundary 500 tps accepted");
+	assertEq(isPlausibleDecode(26, 0.05), false, "boundary 520 tps rejected");
 });
 
 // --- Observation format ---
