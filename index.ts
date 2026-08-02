@@ -205,7 +205,7 @@ export default function (pi: ExtensionAPI) {
 		const theme = ctx.ui.theme;
 		const c = key ? stats.get(key) : undefined;
 		const tps = c ? fmtTps(c.tokens, c.seconds) : "—";
-		ctx.ui.setStatus("tps", theme.fg("dim", `${tps} tok/s  │`));
+		ctx.ui.setStatus("0-tps", theme.fg("dim", `${tps} tok/s  │`));
 	}
 
 	function renderLive(ctx: ExtensionContext) {
@@ -221,7 +221,7 @@ export default function (pi: ExtensionAPI) {
 
 		const tps = (estimate / elapsed).toFixed(1);
 		const prefix = live.usageOutput > 0 ? "" : "≈";
-		ctx.ui.setStatus("tps", ctx.ui.theme.fg("dim", `${prefix}${tps} tok/s  │`));
+		ctx.ui.setStatus("0-tps", ctx.ui.theme.fg("dim", `${prefix}${tps} tok/s  │`));
 	}
 
 	pi.on("session_start", (_event, ctx) => {
