@@ -5,7 +5,7 @@
  * without needing pi running. The pi event handlers (message_start/end)
  * are integration-level and tested by running the extension in pi.
  */
-import { appendFileSync, existsSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { tmpdir } from "node:os";
@@ -35,8 +35,21 @@ function assertMatch(actual: string, pattern: RegExp, msg: string): void {
 
 function obsLogPath(envOverride?: string): string {
 	if (envOverride) return envOverride;
-	const piDir = join(homedir(), ".pi", "agent");
-	return join(piDir, "pi_observations.jsonl");
+	return join(homedir(), ".pi", "agent", "pi-tps-footer", "observations.jsonl");
+}
+
+function loadObsEnabled(dir: string): boolean {
+	try {
+		const s = JSON.parse(readFileSync(join(dir, "state.json"), "utf-8")) as { log?: boolean };
+		return s.log === true;
+	} catch {
+		return false;
+	}
+}
+
+function saveObsEnabled(dir: string, on: boolean): void {
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, "state.json"), JSON.stringify({ log: on }), "utf-8");
 }
 
 function obsId(provider: string, modelId: string, ts: string, input: number, output: number): string {
@@ -75,7 +88,20 @@ function test(name: string, fn: () => void) {
 
 test("obsLogPath default", () => {
 	const path = obsLogPath();
-	assertMatch(path, /\/\.pi\/agent\/pi_observations\.jsonl$/, "default path ends in .pi/agent/pi_observations.jsonl");
+	assertMatch(path, /\/\.pi\/agent\/pi-tps-footer\/observations\.jsonl$/, "default path ends in .pi/agent/pi-tps-footer/observations.jsonl");
+});
+
+test("obs toggle state round-trips (default off)", () => {
+	const dir = join(tmpdir(), `tps-state-${randomId()}`);
+	try {
+		assertEq(loadObsEnabled(dir), false, "default off when no state file");
+		saveObsEnabled(dir, true);
+		assertEq(loadObsEnabled(dir), true, "on persists");
+		saveObsEnabled(dir, false);
+		assertEq(loadObsEnabled(dir), false, "off persists");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("obsLogPath with env override", () => {

@@ -40,13 +40,17 @@
  * turn lengths. Set DECAY_HALF_LIFE_SEC to Infinity for pure cumulative.
  *
  * Commands:
- *   /tps         notify the current model's tok/s
- *   /tps reset   reset the current model's counters
+ *   /tps            notify the current model's tok/s
+ *   /tps reset      reset the current model's counters
+ *   /tps log        show observation-log state and path
+ *   /tps log on|off enable/disable the observation log (persisted)
  *
- * --- Observation logging ---
+ * --- Observation logging (opt-in) ---
  *
- * Every completed assistant turn (clean stop, not aborted/error) is written as
- * a JSON line to ~/.pi/agent/pi_observations.jsonl (or $PI_OBSERVATIONS_LOG).
+ * Off by default; enable with /tps log on (persisted in
+ * ~/.pi/agent/pi-tps-footer/state.json). When on, every completed assistant
+ * turn (clean stop, not aborted/error) is written as a JSON line to
+ * ~/.pi/agent/pi-tps-footer/observations.jsonl (or $PI_OBSERVATIONS_LOG).
  * This is the "raw facts" layer: model, prompt/gen tokens, decode + TTFT
  * latency, stop reason. No quant mapping or slug resolution happens here —
  * the model_id carries quant encoding (e.g. "Qwen3.6-27B-oQ8-mtp") and the
@@ -66,7 +70,7 @@
  *   timestamp          – ISO 8601 of message_end
  */
 
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -117,13 +121,30 @@ const DECAY_HALF_LIFE_SEC = 30 * 60; // 30 min
 // belongs in the ingest layer, which knows the hardware + model.
 const IMPLAUSIBLE_DECODE_TPS = 500;
 
-// --- Observation logger ---
+// --- Observation logger (opt-in) ---
+
+function obsStateDir(): string {
+	return join(homedir(), ".pi", "agent", "pi-tps-footer");
+}
 
 function obsLogPath(): string {
 	const env = process.env["PI_OBSERVATIONS_LOG"];
 	if (env) return env;
-	const piDir = join(homedir(), ".pi", "agent");
-	return join(piDir, "pi_observations.jsonl");
+	return join(obsStateDir(), "observations.jsonl");
+}
+
+function loadObsEnabled(): boolean {
+	try {
+		const s = JSON.parse(readFileSync(join(obsStateDir(), "state.json"), "utf-8")) as { log?: boolean };
+		return s.log === true;
+	} catch {
+		return false;
+	}
+}
+
+function saveObsEnabled(on: boolean): void {
+	mkdirSync(obsStateDir(), { recursive: true });
+	writeFileSync(join(obsStateDir(), "state.json"), JSON.stringify({ log: on }), "utf-8");
 }
 
 /** Ensure the log file exists. */
@@ -183,9 +204,8 @@ export default function (pi: ExtensionAPI) {
 	const stats = new Map<ModelKey, Counters>();
 	let currentKey: ModelKey | undefined;
 
-	// Observation log path (lazy init on first write).
-	let obsPath: string | undefined;
-	let obsInitialized = false;
+	// Observation logging is opt-in (/tps log on); persisted across sessions.
+	let obsEnabled = loadObsEnabled();
 
 	// Track message_start timestamp for TTFT.
 	let messageStartMs: number | undefined;
@@ -283,7 +303,7 @@ export default function (pi: ExtensionAPI) {
 		// observation log and the running average.
 		const loggable = clean && output > 0 && isPlausibleDecode(output, elapsed);
 
-		if (loggable) {
+		if (obsEnabled && loggable) {
 			const model = event.message as { model?: string; provider?: string };
 			const modelId = model.model ?? "unknown";
 			const provider = model.provider ?? "unknown";
@@ -317,13 +337,9 @@ export default function (pi: ExtensionAPI) {
 				timestamp: ts,
 			};
 
-			// Lazy init the log file path and write.
-			if (!obsInitialized) {
-				obsPath = obsLogPath();
-				initObsLog(obsPath);
-				obsInitialized = true;
-			}
-			appendObs(obsPath!, obs);
+			const p = obsLogPath();
+			initObsLog(p);
+			appendObs(p, obs);
 		}
 
 		// --- Decayed average (existing behavior) ---
@@ -349,13 +365,33 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("tps", {
-		description: "Show or reset tokens-per-second for the current model",
+		description: "Show/reset tok/s for the current model; /tps log on|off toggles the observation log",
 		handler: async (args, ctx) => {
 			const key = currentKey ?? keyFor(ctx.model);
-			if (args.trim() === "reset") {
+			const sub = args.trim().split(/\s+/);
+			if (sub[0] === "reset") {
 				if (key) stats.delete(key);
 				render(ctx, key);
 				ctx.ui.notify(`Reset tok/s for ${key ?? "current model"}`, "info");
+				return;
+			}
+			if (sub[0] === "log") {
+				if (sub[1] === "on" || sub[1] === "off") {
+					obsEnabled = sub[1] === "on";
+					saveObsEnabled(obsEnabled);
+					if (obsEnabled) {
+						const p = obsLogPath();
+						initObsLog(p);
+						ctx.ui.notify(`Observation log on → ${p}`, "info");
+					} else {
+						ctx.ui.notify("Observation log off", "info");
+					}
+					return;
+				}
+				ctx.ui.notify(
+					`Observation log ${obsEnabled ? "on" : "off"} → ${obsLogPath()} (toggle: /tps log on|off)`,
+					"info",
+				);
 				return;
 			}
 			const c = key ? stats.get(key) : undefined;
