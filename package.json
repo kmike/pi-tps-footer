@@ -1,5 +1,14 @@
 {
-  "name": "pi-ext-tps",
+  "name": "pi-tps-footer",
   "version": "1.0.0",
-  "private": true
+  "description": "Tokens-per-second in pi's footer — live estimate while streaming, decayed per-model average at rest; opt-in observation log",
+  "license": "MIT",
+  "keywords": ["pi-package"],
+  "repository": "github:kmike/pi-tps-footer",
+  "scripts": {
+    "test": "node tests/obs-log.test.ts"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
 }
