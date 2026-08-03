@@ -5,7 +5,10 @@
   "license": "MIT",
   "author": "Mikhail Korobov",
   "keywords": ["pi-package"],
-  "repository": "github:kmike/pi-tps-footer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kmike/pi-tps-footer.git"
+  },
   "bugs": "https://github.com/kmike/pi-tps-footer/issues",
   "homepage": "https://github.com/kmike/pi-tps-footer#readme",
   "files": ["index.ts"],

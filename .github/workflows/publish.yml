@@ -1,7 +1,14 @@
 name: publish
 
-# Publishes to npm when a semver tag (v1.2.3) is pushed, iff the tag matches
-# package.json's version. Driven by `npm version patch && git push --follow-tags`.
+# Keyless publish to npm via Trusted Publishing (OIDC). No npm token or secret
+# is stored — npm trusts this specific workflow. Requires the package to have a
+# Trusted Publisher configured on npmjs.com (GitHub Actions: kmike/pi-tps-footer,
+# workflow filename publish.yml). Driven by `npm version patch && git push
+# --follow-tags`.
+#
+# The package must exist before a trusted publisher can be attached to it, so
+# the FIRST publish is done locally (npm publish, OTP), then all subsequent
+# releases go through this workflow keylessly.
 
 on:
   push:
@@ -10,7 +17,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # required for npm --provenance
+  id-token: write   # OIDC: lets npm verify this exact workflow published it
 
 jobs:
   publish:
@@ -20,7 +27,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org   # reads $NODE_AUTH_TOKEN
+          registry-url: https://registry.npmjs.org   # npm auto-detects OIDC here
 
       - name: Verify tag matches package.json version
         run: |
@@ -32,8 +39,9 @@ jobs:
             process.exit(1);\
           }"
 
+      # Trusted publishing requires npm >= 11.5.1; node 24 ships 11.x, bump to be safe.
+      - run: npm install -g npm@latest
+
       - run: npm test
 
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
