@@ -8,12 +8,14 @@
   "repository": "github:kmike/pi-tps-footer",
   "bugs": "https://github.com/kmike/pi-tps-footer/issues",
   "homepage": "https://github.com/kmike/pi-tps-footer#readme",
+  "files": ["index.ts"],
   "engines": { "node": ">=22.18" },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
   "scripts": {
-    "test": "node tests/obs-log.test.ts"
+    "test": "node tests/obs-log.test.ts",
+    "prepublishOnly": "npm test"
   },
   "pi": {
     "extensions": ["./index.ts"]
