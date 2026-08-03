@@ -1,5 +1,9 @@
 # pi-tps-footer
 
+[![test](https://github.com/kmike/pi-tps-footer/actions/workflows/test.yml/badge.svg)](https://github.com/kmike/pi-tps-footer/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/github/license/kmike/pi-tps-footer?color=blue)](https://github.com/kmike/pi-tps-footer/blob/main/LICENSE)
+[![pi extension](https://img.shields.io/badge/pi-extension-8A4FFF)](https://github.com/earendil-works/pi-coding-agent)
+
 Shows tokens-per-second in [pi](https://github.com/earendil-works/pi-coding-agent)'s
 footer: a live estimate while the model is streaming, and a running average
 when idle. Counts are kept per model, so switching models never mixes their

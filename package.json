@@ -3,8 +3,15 @@
   "version": "1.0.0",
   "description": "Tokens-per-second in pi's footer — live estimate while streaming, decayed per-model average at rest; opt-in observation log",
   "license": "MIT",
+  "author": "Mikhail Korobov",
   "keywords": ["pi-package"],
   "repository": "github:kmike/pi-tps-footer",
+  "bugs": "https://github.com/kmike/pi-tps-footer/issues",
+  "homepage": "https://github.com/kmike/pi-tps-footer#readme",
+  "engines": { "node": ">=22.18" },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "scripts": {
     "test": "node tests/obs-log.test.ts"
   },
