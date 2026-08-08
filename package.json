@@ -1,18 +1,24 @@
 {
   "name": "pi-tps-footer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Tokens-per-second in pi's footer — live estimate while streaming, decayed per-model average at rest; opt-in observation log",
   "license": "MIT",
   "author": "Mikhail Korobov",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kmike/pi-tps-footer.git"
   },
   "bugs": "https://github.com/kmike/pi-tps-footer/issues",
   "homepage": "https://github.com/kmike/pi-tps-footer#readme",
-  "files": ["index.ts"],
-  "engines": { "node": ">=22.18" },
+  "files": [
+    "index.ts"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
@@ -21,6 +27,8 @@
     "prepublishOnly": "npm test"
   },
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   }
 }
