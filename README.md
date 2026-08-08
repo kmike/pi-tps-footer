@@ -16,7 +16,14 @@ below.
 ## Install
 
 ```bash
-pi install git:github.com/kmike/pi-tps-footer
+pi install npm:pi-tps-footer
+```
+
+To track a specific branch or commit instead, install from git (frozen at the
+ref; won't auto-update with `pi update`):
+
+```bash
+pi install git:github.com/kmike/pi-tps-footer@main
 ```
 
 ## Commands
