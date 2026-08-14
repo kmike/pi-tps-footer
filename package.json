@@ -1,6 +1,6 @@
 {
   "name": "pi-tps-footer",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Tokens-per-second in pi's footer — live estimate while streaming, decayed per-model average at rest; opt-in observation log",
   "license": "MIT",
   "author": "Mikhail Korobov",
