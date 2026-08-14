@@ -225,7 +225,11 @@ export default function (pi: ExtensionAPI) {
 		const theme = ctx.ui.theme;
 		const c = key ? stats.get(key) : undefined;
 		const tps = c ? fmtTps(c.tokens, c.seconds) : "—";
-		ctx.ui.setStatus("0-tps", theme.fg("dim", `${tps} tok/s  │`));
+		// Trailing NBSP (U+00A0) INSIDE the colored span widens the gap to the
+		// next status segment to 2 spaces: pi's footer collapses ASCII space runs
+		// and trims segment ends, but NBSP survives both (trim sees the ANSI
+		// reset code, not the NBSP). A plain trailing space would be destroyed.
+		ctx.ui.setStatus("0-tps", theme.fg("dim", `[${tps} tok/s]\u00A0`));
 	}
 
 	function renderLive(ctx: ExtensionContext) {
@@ -241,7 +245,7 @@ export default function (pi: ExtensionAPI) {
 
 		const tps = (estimate / elapsed).toFixed(1);
 		const prefix = live.usageOutput > 0 ? "" : "≈";
-		ctx.ui.setStatus("0-tps", ctx.ui.theme.fg("dim", `${prefix}${tps} tok/s  │`));
+		ctx.ui.setStatus("0-tps", ctx.ui.theme.fg("dim", `[${prefix}${tps} tok/s]\u00A0`));
 	}
 
 	pi.on("session_start", (_event, ctx) => {
