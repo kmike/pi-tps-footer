@@ -1,47 +1,24 @@
 name: publish
 
-# Keyless publish to npm via Trusted Publishing (OIDC). No npm token or secret
-# is stored — npm trusts this specific workflow. Requires the package to have a
-# Trusted Publisher configured on npmjs.com (GitHub Actions: kmike/pi-tps-footer,
-# workflow filename publish.yml). Driven by `npm version patch && git push
-# --follow-tags`.
-#
-# The package must exist before a trusted publisher can be attached to it, so
-# the FIRST publish is done locally (npm publish, OTP), then all subsequent
-# releases go through this workflow keylessly.
-
 on:
+  # Release flow: `npm version minor && git push --follow-tags` — the tag push
+  # triggers the publish.
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-
-permissions:
-  contents: read
-  id-token: write   # OIDC: lets npm verify this exact workflow published it
+    tags: ["v*"]
+  # Manual escape hatch (e.g. a tag pushed before CI existed): publishes
+  # whatever version is in package.json on the default branch.
+  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org   # npm auto-detects OIDC here
-
-      - name: Verify tag matches package.json version
-        run: |
-          node -e "\
-          const {version} = require('./package.json');\
-          const tag = process.env.GITHUB_REF_NAME.replace(/^v/, '');\
-          if (version !== tag) {\
-            console.error('Tag v'+tag+' does not match package.json version '+version);\
-            process.exit(1);\
-          }"
-
-      # Trusted publishing requires npm >= 11.5.1; node 24 ships 11.x, bump to be safe.
-      - run: npm install -g npm@latest
-
-      - run: npm test
-
-      - run: npm publish --provenance --access public
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm test # prepublishOnly runs it too; fail fast with clean output
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
