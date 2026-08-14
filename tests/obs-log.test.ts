@@ -177,6 +177,7 @@ test("observation JSON shape", () => {
 	const obs = {
 		id: "obs-pi-omlx-Qwen-12345-678",
 		model_id: "Qwen3.6-27B-oQ8-mtp",
+		model_name: "Qwen3.6 27B (oQ8 MTP)",
 		provider: "omlx",
 		prompt_tokens: 12345,
 		gen_tokens: 678,
@@ -191,6 +192,7 @@ test("observation JSON shape", () => {
 	const json = JSON.stringify(obs);
 	const parsed = JSON.parse(json);
 	assertEq(parsed.model_id, "Qwen3.6-27B-oQ8-mtp", "model_id survives round-trip");
+	assertEq(parsed.model_name, "Qwen3.6 27B (oQ8 MTP)", "model_name survives round-trip");
 	assertEq(parsed.prompt_tokens, 12345, "prompt_tokens survives round-trip");
 	assertEq(parsed.decode_seconds, 12.34, "decode_seconds survives round-trip");
 	assertEq(parsed.ttft_seconds, 0.56, "ttft_seconds survives round-trip");
@@ -201,6 +203,7 @@ test("observation with null TTFT", () => {
 	const obs = {
 		id: "obs-pi-test",
 		model_id: "test-model",
+		model_name: null,
 		provider: "test",
 		prompt_tokens: 100,
 		gen_tokens: 50,
@@ -215,6 +218,7 @@ test("observation with null TTFT", () => {
 	const json = JSON.stringify(obs);
 	const parsed = JSON.parse(json);
 	assert(parsed.ttft_seconds === null, "null TTFT preserved");
+	assert(parsed.model_name === null, "null model_name preserved");
 });
 
 // --- Log file append ---

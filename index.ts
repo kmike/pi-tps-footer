@@ -52,12 +52,14 @@
  * turn (clean stop, not aborted/error) is written as a JSON line to
  * ~/.pi/agent/pi-tps-footer/observations.jsonl (or $PI_OBSERVATIONS_LOG).
  * This is the "raw facts" layer: model, prompt/gen tokens, decode + TTFT
- * latency, stop reason. No quant mapping or slug resolution happens here —
- * the model_id carries quant encoding (e.g. "Qwen3.6-27B-oQ8-mtp") and the
- * ingest script (pi-ingest skill) maps it to repo slugs + ALLOWED_QUANT.
+ * latency, stop reason. No mapping or interpretation happens here — log
+ * consumers resolve model ids however they need.
  *
  * Fields per observation:
- *   model_id   – pi model name (provider-specific, quant-encoded)
+ *   model_id   – pi model id (provider-specific; the id sent to the server)
+ *   model_name – pi display name for that model, if known (null otherwise);
+ *                purely local bookkeeping — never sent to any server. Older
+ *                logs lack this field.
  *   provider   – pi provider id ("omlx", "zai", "unsloth", etc.)
  *   prompt_tokens  – usage.input (context size)
  *   gen_tokens     – usage.output
@@ -118,7 +120,7 @@ const DECAY_HALF_LIFE_SEC = 30 * 60; // 30 min
 // time. Such observations are skipped (not logged, not counted in the running
 // average) rather than emitting a misleading near-zero decode_seconds. Finer
 // per-model ceiling filtering (memory_bandwidth / active_bytes_per_token)
-// belongs in the ingest layer, which knows the hardware + model.
+// belongs to log consumers, which know the hardware + model.
 const IMPLAUSIBLE_DECODE_TPS = 500;
 
 // --- Observation logger (opt-in) ---
@@ -159,7 +161,7 @@ function appendObs(path: string, obs: Record<string, unknown>): void {
 	appendFileSync(path, JSON.stringify(obs) + "\n", "utf-8");
 }
 
-/** Produce a unique-ish id for dedup on re-ingest. */
+/** Produce a unique-ish id for dedup by log consumers. */
 function obsId(provider: string, modelId: string, ts: string, input: number, output: number): string {
 	const shortTs = ts.replace(/[-:Z.]/g, "").slice(2, 20);
 	return `obs-pi-${provider}-${modelId.replace(/[^a-zA-Z0-9_-]/g, "-")}-${shortTs}-i${input}-o${output}`;
@@ -203,6 +205,11 @@ export default function (pi: ExtensionAPI) {
 	// Per-model cumulative counters (authoritative, from usage.output).
 	const stats = new Map<ModelKey, Counters>();
 	let currentKey: ModelKey | undefined;
+	// Display names per provider/id (from session_start/model_select), logged
+	// per observation as model_name. Keyed by the message's own model so a
+	// turn by a non-UI model (e.g. subagents) resolves to its own name, not
+	// the UI-selected one. Local-only — never sent to any server.
+	const modelNames = new Map<ModelKey, string>();
 
 	// Observation logging is opt-in (/tps log on); persisted across sessions.
 	let obsEnabled = loadObsEnabled();
@@ -250,11 +257,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		currentKey = keyFor(ctx.model);
+		if (ctx.model) modelNames.set(currentKey!, ctx.model.name);
 		render(ctx, currentKey);
 	});
 
 	pi.on("model_select", (event, ctx) => {
 		currentKey = keyFor(event.model);
+		modelNames.set(currentKey!, event.model.name);
 		render(ctx, currentKey);
 	});
 
@@ -326,9 +335,15 @@ export default function (pi: ExtensionAPI) {
 			const contextTokens = resolveContextTokens(turnContextTokens, ctx.getContextUsage()?.tokens, input);
 			turnContextTokens = undefined; // reset for next turn
 
+			// Name lookup keyed by the message's own provider/id — same key space
+			// as modelNames — so non-UI models log their own display name.
+			const nameKey = provider !== "unknown" && modelId !== "unknown"
+				? `${provider}/${modelId}` : undefined;
+
 			const obs: Record<string, unknown> = {
 				id: obsId(provider, modelId, ts, contextTokens ?? 0, output),
 				model_id: modelId,
+				model_name: (nameKey ? modelNames.get(nameKey) : undefined) ?? null,
 				provider: provider,
 				prompt_tokens: contextTokens,
 				gen_tokens: output,
